@@ -1,0 +1,1364 @@
+<html>
+
+<head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+<title>Understanding Merkle Trees</title>
+</head>
+
+<body>
+
+<h2 align="center">Understanding Merkle Trees<br>
+Why use them, who uses them, and how to use them</h2>
+<p>Get the latest source on GitHub:
+<a href="https://github.com/cliftonm/MerkleTree">
+https://github.com/cliftonm/MerkleTree</a></p>
+<p align="center"><img border="0" src="demo1.png" width="721" height="511"></p>
+<h2>Contents</h2><ul>
+<li><a href="#Introduction0">Introduction</a></li>
+<ul>
+<li><a href="#TerminologyinThisArticle1">Terminology in This Article</a></li>
+</ul>
+<li><a href="#WhoUsesMerkleTrees2">Who Uses Merkle Trees?</a></li>
+<ul>
+<li><a href="#DigitalCurrency3">Digital Currency</a></li>
+<li><a href="#GlobalSupplyChain4">Global Supply Chain</a></li>
+<li><a href="#HealthCareIndustry5">Health Care Industry</a></li>
+<li><a href="#CapitalMarkets6">Capital Markets</a></li>
+<li><a href="#git">Git and Mercurial</a></li>
+</ul>
+<li><a href="#WhyMerkleTrees7">Why Merkle Trees?</a></li>
+<ul>
+<li><a href="#ConsistencyVerification8">Consistency Verification</a></li>
+<li><a href="#DataVerification9">Data Verification</a></li>
+<li><a href="#DataSynchronization10">Data Synchronization</a></li>
+<li><a href="#ProofisCritical11">Proof is Critical</a></li>
+</ul>
+<li><a href="#MerkleTreesinAction12">Merkle Trees in Action</a></li>
+<ul>
+<li><a href="#HowDoesDataVerification(AuditProof)Work13">How Does Data Verification (Audit Proof) Work?</a></li>
+<li><a href="#HowDoesConsistencyVerification(ConsistencyProof)Work14">How Does Consistency Verification (Consistency Proof) Work?</a></li>
+<ul>
+<li><a href="#ConsistencyProofWalkthrough15">Consistency Proof Walkthrough</a></li>
+<li><a href="#ReconstructingtheOldRootHash16">Reconstructing the Old Root Hash</a></li>
+<li><a href="#ConsistencyProofCaveats17">Consistency Proof Caveats</a></li>
+<li><a href="#ConsistencyProofGeneralAlgorithm18">Consistency Proof General Algorithm</a></li>
+</ul>
+</ul>
+<li><a href="#TheDemo20">The Demo</a></li>
+<ul>
+	<li><a href="#ChangingtheNumberofLeaves21">Changing the Number of Leaves</a></li>
+	<li><a href="#TestinganAuditProof22">Testing an Audit Proof</a></li>
+	<li><a href="#TestingaConsistencyProof23">Testing a Consistency Proof</a></li>
+</ul>
+<li><a href="#MerkleTreeImplementation24">Merkle Tree Implementation</a></li>
+<ul>
+	<li><a href="#MerkleHashClass25">MerkleHash Class</a></li>
+	<li><a href="#MerkeNodeClass26">MerkeNode Class</a></li>
+	<li><a href="#MerkleTreeClass27">MerkleTree Class</a></li>
+	<li><a href="#PropertiesandFields28">Properties and Fields</a></li>
+	<ul>
+		<li><a href="#TheContractMethod29">The Contract Method</a></li>
+		<li><a href="#Constructor30">Constructor</a></li>
+		<li><a href="#AppendingLeaves31">Appending Leaves</a></li>
+		<li><a href="#AddingaTreetoanExistingTree32">Adding a Tree to an Existing Tree</a></li>
+		<li><a href="#BuildingtheTreefromitsLeaves33">Building the Tree from its Leaves</a></li>
+		<li><a href="#AuditProof34">Audit Proof</a></li>
+		<li><a href="#GettheAuditProofasHashPairsforVerification35">Get the Audit Proof as Hash Pairs for Verification</a></li>
+		<li><a href="#VerifyConsistencyProof36">Verify Consistency Proof</a></li>
+		<li><a href="#FindaLeafintheListofLeaves37">Find a Leaf in the List of Leaves</a></li>
+		<li><a href="#CreateMerkleNodeOverridesforCustomNodeRequirements38">Create MerkleNode Overrides for Custom Node Requirements</a></li>
+		<li><a href="#OtherStuff-FixOddNumberLeaves39">Other Stuff - FixOddNumberLeaves</a></li>
+	</ul>
+	<li><a href="#MerkleProofHashClass40">MerkleProofHash Class</a></li>
+</ul>
+<li><a href="#UnitTests42">Unit Tests</a></li>
+<ul>
+	<li><a href="#ConsistencyProofUnitTest43">Consistency Proof Unit Test</a></li>
+</ul>
+<li><a href="#Monotonic1">Monotonic Hashes</a></li>
+<li><a href="#Conclusion44">Conclusion</a></li>
+<li><a href="#References45">References</a></li>
+</ul>
+<h2><a name="Introduction0">Introduction</a></h2>
+<p>In 1979, Ralph Merkle<sup>1</sup> patented<sup>3</sup> the concept of hash 
+trees, or better known as a Merkle tree (the patent expired in 
+2002.)&nbsp; In summary: <i>&quot;The invention comprises a method of providing a 
+digital signature for purposes of authentication of a message, which utilizes an 
+authentication tree function of a one-way function of a secret number.&quot;</i>&nbsp; 
+</p>
+<p>Or, if you prefer wikipedia's definition: &quot;<i>In cryptography and computer 
+science, a hash tree or Merkle tree is a tree in which every non-leaf node is 
+labeled with the hash of the labels or values (in case of leaves) of its child 
+nodes. Hash trees allow efficient and secure verification of the contents of 
+large data structures. Hash trees are a generalization of hash lists and hash 
+chains.</i>&quot;<sup>2</sup></p>
+<h3><a name="TerminologyinThisArticle1">Terminology in This Article</a></h3>
+<p>I'll attempt to use a consistent terminology throughout this article, except 
+where directly quoting some reference material.</p>
+<p><u>Record</u> - a boring word that describes a packet of data whose hash 
+corresponds to a &quot;leaf&quot; in a Merkle tree.&nbsp; When reading about Merkle trees, 
+you'll see other words like &quot;transaction&quot; or &quot;certificate&quot; depending on the 
+context. </p>
+<p><u>Block</u> - borrowing from bitcoin, I'm going to use the term &quot;block&quot; to 
+mean <i>all the permanent records</i> that&nbsp; representing the leaves of the 
+Merkle tree.&nbsp; To quote bitcoin:&nbsp; &quot;Transaction data is permanently 
+recorded in files called blocks. They can be thought of as the individual pages 
+of a city recorder's recordbook (where changes to title to real estate are 
+recorded) or a stock transaction ledger.&quot;<sup>8</sup>&nbsp; In other words: 
+&quot;records are permanently recorded in files called blocks.&quot;</p>
+<p><u>Log</u> - synonymous for the Merkle tree, a log is the hash tree 
+constructed from the hashed records.&nbsp; In addition to the log being 
+represented as a hash tree, the log has a specific property: new entries are 
+always appended as a new leaf (or leaves) to the last leaf in the tree.&nbsp; 
+Furthermore, for transactional systems (like currencies), once a record is 
+&quot;logged&quot;, it cannot be changed--instead, changes to the transaction are 
+represented as new record entries in the log, providing a complete audit trail 
+of a transaction.&nbsp; Conversely, a distributed datastore (like a NoSQL 
+database) where a record is allowed to change will update the hash of the record 
+and thus the entire tree.&nbsp; In this scenario, a Merkle tree is used to 
+quickly and efficiently identify the changed record so that nodes in the 
+distributed system can be synchronized.</p>
+<h2><a name="WhoUsesMerkleTrees2">Who Uses Merkle Trees?</a></h2>
+<h3><a name="DigitalCurrency3">Digital Currency</a></h3>
+<p>Merkle trees (and variations) are used by Bitcoin<sup>4</sup>, Ethereum<sup>6</sup>, Apache 
+Cassandra<sup>5</sup>, and 
+other systems to provide:</p>
+<ul>
+	<li>consistency verification</li>
+	<li>data verification</li>
+	<li>data synchronization (you'll have to wait for Part II, because data 
+	synchronization is a whole article unto itself.)</li>
+</ul>
+<p>What do these terms mean?&nbsp; I'll explain that soon!</p>
+<p>The concept of blockchains, which leverages Merkle trees, is growing in 
+popularity beyond bitcoin.&nbsp; Businesses that need to track data and verify 
+the integrity of the data are beginning to see how blockchains assist in that 
+process.&nbsp; </p>
+<h3><a name="GlobalSupplyChain4">Global Supply Chain</a></h3>
+<p>For example, IBM and Laersk are teaming up to use blockchains for managing 
+the global supply chain:</p>
+<p><i>&quot;Technology giant IBM (NYSE: IBM) and Maersk, owner of the leading 
+transport and logistics company Maersk Line, have announced a potentially 
+groundbreaking collaboration to use �blockchain� technology to digitize 
+transactions among the world�s vast and interconnected network of shippers, 
+freight forwarders, ocean carriers, ports and customs authorities participating 
+in the supply chain. <br>
+<br>
+If widely adopted, the technology could transform the global, cross-border 
+supply chain and save the industry billions of dollars, according to IBM and 
+Maersk.&quot;</i><sup>10</sup></p>
+<h3><a name="HealthCareIndustry5">Health Care Industry</a></h3>
+<p><i>&quot;Google�s AI-powered health tech subsidiary, DeepMind Health, is planning 
+to use a new technology loosely based on bitcoin to let hospitals, the NHS and 
+eventually even patients track what happens to personal data in real-time.<br>
+<br>
+Dubbed �Verifiable Data Audit�, the plan is to create a special digital ledger 
+that automatically records every interaction with patient data in a 
+cryptographically verifiable manner. This means any changes to, or access of, 
+the data would be visible.&quot;</i><sup>11</sup></p>
+<h3><a name="CapitalMarkets6">Capital Markets</a></h3>
+<p>Don't spend 2,500 British Pounds to read the study.&nbsp; And should you ask, no, I didn't 
+either.</p>
+<p><i>&quot;Despite the fact that the blockchain was initially developed as a 
+freely-accessible, utility-like alternative to traditional means of recording 
+and storing the transfer of assets between counterparties within a distributed, 
+shared network, many fintech start-ups are focused on developing private 
+blockchains in 2015 that can only be accessed by pre-approved participants. 
+GreySpark believes this trend shows a disconnect between the business 
+imperatives of fintech start-ups to create blockchain solutions that garner 
+widespread uptake and the desire of banks and buyside firms to support a DLT 
+[Distributed Ledger Technology] solution designed to service every aspect of the 
+pre- and post-trade lifecycle.&quot;</i><sup>12</sup></p>
+<h3><a name="git">Git and Mercurial</a></h3>
+<p>Apparently (though I could not find what I consider to be an authoritative 
+source on the matter) both Git and Mercuriual use specialized Merkle trees for 
+managing versions.</p>
+<h2><a name="WhyMerkleTrees7">Why Merkle Trees?</a></h2>
+<p><img border="0" src="important.png" width="38" height="32"> Using a hash tree 
+like a Merkle tree:</p>
+<ol>
+	<li>Significantly reduces the amount of data that a trusted authority has to 
+	maintain to proof the integrity of the data.</li>
+	<li>Significantly reduces the network I/O packet size to perform consistency 
+	and data verification as well as data synchronization.</li>
+	<li>Separates the validation of the data from the data itself -- the Merkle 
+	tree can reside locally, or on a trusted authority, or can itself reside on 
+	a distributed system (perhaps you only maintain your own tree.)&nbsp; 
+	Decoupling the &quot;I can prove the data is valid&quot; from the data itself means 
+	you can implement the appropriate and separate (including redundant) 
+	persistence for both the Merkle tree and the data store.</li>
+</ol>
+<p>So the answer to the why is three-fold:</p>
+<ol>
+	<li>Merkle trees provide a means of proving that integrity / validity of 
+	your data.</li>
+	<li>Merkle trees require little memory / disk space and proofs are 
+	computationally easy and fast. </li>
+	<li>Merkle tree proofs and management requires only a very small and terse 
+	amount of information to be transmitted across a network.</li>
+</ol>
+<h3><a name="ConsistencyVerification8">Consistency Verification</a></h3>
+<p>This is known as a &quot;consistency proof&quot; because it lets you verify that any 
+two versions of a log are consistent:</p>
+<ol>
+	<li>the later version includes everything in the earlier version</li>
+	<li>...in the same order</li>
+	<li>...and all new records come after the records in the older version<sup>7</sup></li>
+</ol>
+<p>&quot;If you can prove that a log is consistent it means that:</p>
+<ul>
+	<li>no certificates [records] have 
+been back-dated and inserted into the log</li>
+	<li>no certificates have been modified in 
+the log,</li>
+	<li>and the log has never been branched or forked.&quot;<sup>7</sup></li>
+</ul>
+<p>A consistency proof is therefore important for verifying that your log has 
+not been corrupted.&nbsp; &quot;Monitors and auditors regularly use consistency 
+proofs to verify that logs are behaving properly.&quot;<sup>7</sup></p>
+<h3><a name="DataVerification9">Data Verification</a></h3>
+<p>This is known as an &quot;audit proof&quot; because it lets you verify that a specific 
+record has been included in the log.&nbsp; As with the consistency verification, 
+the server maintaining the log provides the client with a proof that the record 
+exists in the log.&nbsp; &quot;Anyone can request a Merkle audit proof from a log and 
+verify that a certificate [record] is in the log. Auditors routinely send these 
+types of requests to logs so they can verify certificates for TLS clients. If a 
+Merkle audit proof fails to produce a root hash that matches the Merkle tree 
+hash, it means the certificate is not in the log.&quot;<sup>7</sup> (More on what a 
+root has is and how an audit proof works later on.)&nbsp; </p>
+<p><img border="0" src="key-small.png" width="94" height="33"></p>
+<p>But there's another reason for sending the proof to the client: it proves 
+that the server itself is not inventing a positive answer, but is instead 
+proving to you, the client, that it knows what it's talking about.&nbsp; Faking 
+a proof is computationally impossible.&nbsp;&nbsp; </p>
+<h3><a name="DataSynchronization10">Data Synchronization</a></h3>
+<p>Merkle trees are useful in synchronizing data across a distributed data store 
+because it allows each node in the distributed system to quickly and efficiently 
+identify records that have changed without having to send all the data to make 
+the comparison.&nbsp; Instead, once a particular leaf in the tree is identified 
+as having been changed, only the record that is associated with that specific 
+leaf is sent over the network.&nbsp; Note that Merkle trees do not directly 
+provide mechanisms for resolving collisions and synchronizing multiple writers 
+to the same record.&nbsp; We'll demonstrate how this works later on.</p>
+<p>As I mentioned above, you'll have to wait for Part II, because data 
+synchronization is a whole article unto itself.&nbsp; Basic synchronization (has 
+a leaf changed) is straight forward, but more complex synchronization in a 
+dynamic environment where leaves can be appended or deleted (not sure an insert 
+operation has any meaning), is a non-trivial problem.&nbsp; Technically, you may 
+not want to use Merkle trees for this, particularly since it invalidates the 
+point of an audit or consistency proof, but I think a discussion of this is 
+still worthwhile in the context of synchronizing distributed data, when it is 
+quite likely that a leaf, if not outright deleted, would at least be marked for 
+deletion.&nbsp; So, Merkle tree garbage collection is an issue involved in data 
+synchronization, at least in my thinking of the matter.</p>
+<h3><a name="ProofisCritical11">Proof is Critical</a></h3>
+<p><img border="0" src="key-small.png" width="94" height="33"></p>
+<p>Critical to the concept of a consistency proof and an audit proof is that 
+there actually is a proof that the client can verify on its own.&nbsp; This 
+means that when the client queries a server (ideally a trusted authority) to 
+validate consistency or the existence of a transaction, the server doesn't just 
+respond with a &quot;yes&quot; or &quot;no&quot; answer, but, in the case of a &quot;yes&quot;, sends you back<i>
+a proof</i> that the client can verify.&nbsp; The proof is based on the server's 
+knowledge of the Merkle tree, which cannot be duplicated by someone trying to 
+get the client to believe that their data is valid.</p>
+<p>In a distributed system, each node maintains the Merkle tree for its data, 
+and during the synchronization process, any node indicating that a record has 
+changed ends up implicitly proving itself to the other nodes that it is a valid 
+node.&nbsp; In other words, a node cannot jump onto the network and say &quot;I have 
+a new record&quot; or &quot;I have a record to replace this other record&quot; because it is 
+lacking the information necessary to prove itself to the other nodes.</p>
+<h2><a name="MerkleTreesinAction12">Merkle Trees in Action</a></h2>
+<p>A Merkle tree is typically a binary tree in which each leaf represents the 
+hashed value of the record associated with that leaf.&nbsp; The branches are the 
+hash of the concatenated hashes of the two children.&nbsp; This process of 
+re-hashing the concatenation of the child nodes to create the parent node is 
+performed until the top of the tree is reached, called the &quot;root hash.&quot;</p>
+<p><img border="0" src="tree1.png" width="796" height="226"></p>
+<p><img border="0" src="important.png" width="38" height="32">&nbsp; The above diagram 
+<u>simulates</u> the concatenation of the child hashes.&nbsp; We'll use this 
+simulation throughout the article.</p>
+<h3><a name="HowDoesDataVerification(AuditProof)Work13">How Does Data Verification (Audit Proof) Work?</a></h3>
+<p>Let's say you are the owner of the record &quot;2&quot; in the above diagram.&nbsp; You 
+also have, from a trusted authority, the root hash, which in our simulation is 
+&quot;01234567&quot;.&nbsp; You ask the server to prove to you that your record &quot;2&quot; is in 
+the tree.&nbsp; What the server returns to you are the hashes &quot;3&quot;, &quot;01&quot;, &quot;4567&quot; 
+as illustrated here:</p>
+<p><img border="0" src="consistency1.png" width="644" height="221"></p>
+<p>Using this information (including the right-left flags that are sent back 
+along with the hashes), the proof is that:</p>
+<ul>
+	<li>2 + 3 from which you compute 23</li>
+	<li>01 + 23 from which you compute 0123</li>
+	<li>0123 + 4567 from which you compute 01234567</li>
+</ul>
+<p>Since you know the root hash from your trusted authority, the proof validates 
+that &quot;2&quot; exists in the tree.&nbsp; Furthermore, the system from which you have 
+obtained the proof is proving to you that it is an &quot;authority&quot; because it is 
+able to provide valid hashes so that you can get from &quot;2&quot; to your known root 
+hash &quot;01234567.&quot;&nbsp; Any system pretending to validate your request would not 
+be able to provide you with the intermediate hashes since you're not giving the 
+system the root hash, you're just telling it to give you the proof - it can't 
+invent the proof because it doesn't know your root hash -- only you know that.</p>
+<p>In order to verify the proof, very little information about the tree is 
+revealed to you.&nbsp; Furthermore, the data packet that is needed for this 
+proof is very small, making it efficient to send over a network and to make the 
+proof computation.</p>
+<h3><a name="HowDoesConsistencyVerification(ConsistencyProof)Work14">How Does Consistency Verification (Consistency Proof) Work?</a></h3>
+<p>Consistency proofs apply to trees that are &quot;append only&quot;, like a log.&nbsp; 
+They are typically not used in systems where leaves are being updated because 
+this would require synchronizing old root hash values.&nbsp; It's doable, it's 
+just not something I would expect to see.&nbsp; Section 2.1.3 of RFC 6962<sup>9</sup> 
+provides some useful diagrams on how a consistency proof works, but I found it 
+confusing to figure out, so I'll try and explain it a bit better here.&nbsp; 
+Using their example (but my simulated hash numbering), we'll start with 3 
+records:</p>
+<p>First three records &quot;012&quot; are created:</p>
+<p><img border="0" src="r1.png" width="283" height="161"></p>
+<p>A fourth record &quot;3&quot; is added at some point, resulting in this tree:</p>
+<p><img border="0" src="tree3.png" width="325" height="164"></p>
+<p>Two more records &quot;45&quot; are added:</p>
+<p><img border="0" src="r2.png" width="531" height="224"></p>
+<p>And finally, one more record &quot;6&quot; is added:</p>
+<p><img border="0" src="r3.png" width="606" height="219"></p>
+<p>For each of the sub-trees (record sets) we appended:</p>
+<p>012<br>
+3<br>
+45<br>
+6</p>
+<p>We have:</p>
+<ul>
+	<li>The new root hash for the tree after <i>all</i> the sub-trees were appended 
+	and... </li>
+	<li>The original hash of each tree <i>before</i> additional records were 
+	appended.&nbsp; </li>
+</ul>
+<p>We 
+now want to verify the root hashes when those sub-trees were added can be 
+reconstructed, even though the full tree's root hash has changed.&nbsp; This 
+verifies the order of the records and that the data associated with the record's 
+hash hasn't changed, either on the authority server or the client's machine.</p>
+<h4><a name="ConsistencyProofWalkthrough15">Consistency Proof Walkthrough</a></h4>
+<p>A consistency proof recreates the hashes 
+for each sub-tree given the new tree (last figure above):</p>
+<ol>
+	<li>The first tree has a root hash of &quot;012&quot;.</li>
+	<li>When the second tree was added, the root hash became &quot;0123&quot;.</li>
+	<li>When the third tree was added, the root hash changed to &quot;012345&quot;.</li>
+	<li>When the last tree was added, the root hash changed to &quot;0123456&quot;. </li>
+</ol>
+<p><u>Consistency Proof of the First Tree</u></p>
+<p>What do we need to do to verify that the first tree, with its 3 leaves, still 
+exists in the new tree?</p>
+<p><img border="0" src="consistency7.png" width="647" height="224"></p>
+<p>As the above diagram illustrates, we need the hashes of 2 nodes &quot;01&quot; and &quot;2&quot; 
+in order to reconstruct the first tree's old root has of &quot;012&quot;.</p>
+<p><u>Consistency Proof of the Second Tree</u></p>
+<p>The root hash when we added the second tree, which appended one leaf &quot;3&quot; 
+for a total of 4 leaves now in the tree, was the 
+hash for the node &quot;0123&quot;.</p>
+<p><img border="0" src="consistency2.png" width="611" height="222"></p>
+<p>The consistency proof is simply the node that represents &quot;0123&quot;.</p>
+<p><u>Consistency Proof of the Third Tree</u></p>
+<p>The third tree added two nodes &quot;45&quot; and the root hash at that point was 
+&quot;012345&quot;.&nbsp; The consistency proof obtains that for us:</p>
+<p><img border="0" src="consistency9.png" width="646" height="224"></p>
+<p><u>Consistency Proof Another Scenario</u></p>
+<p>Let's say we added leaves &quot;4&quot;, &quot;5&quot;, and &quot;6&quot; separately.&nbsp; When we added 
+the leaf for &quot;4&quot;, we were given the hash for the node &quot;01234&quot; for the 5 leaves 
+in the tree at that point.&nbsp; Now that we have 7 leaves in the tree, here's 
+the pieces needed to reconstruct the old root hash of &quot;01234&quot;:</p>
+<p><img border="0" src="consistency4.png" width="644" height="227"></p>
+<p><u>Consistency Proof Last Scenario</u></p>
+<p>This scenario differs from all the rest because three nodes are required to 
+construct the original root hash.&nbsp; Given a tree with 8 leaves, where the 
+7th leaf (node &quot;6&quot;) was added, the root hash at that point was the hash for 
+&quot;0123456&quot;.&nbsp; The reconstruction of this hash requires these nodes:</p>
+<p><img border="0" src="consistency5.png" width="645" height="219"></p>
+<h4><a name="ReconstructingtheOldRootHash16">Reconstructing the Old Root Hash</a></h4>
+<p>The last example above illustrates how the old root hash &quot;0123456&quot; is 
+reconstructed from the the list of nodes in the consistency proof.&nbsp; Here, 
+the nodes are given to us in the following order:</p>
+<p>0123<br>
+45<br>
+6</p>
+<p>To reconstruct the old hash, we have to combine hashes from right to left:</p>
+<p>45 + 6 = 456<br>
+0123 + 456 = 0123456</p>
+<h4><a name="ConsistencyProofCaveats17">Consistency Proof Caveats</a></h4>
+<p>This is not a trivial algorithm and uses the following rules and information:</p>
+<ul>
+	<li>A consistency proof is always based on a computation verifying the first
+	<i>m</i> leaves in the tree.&nbsp; When we add a tree to an existing tree,
+	<i>m</i> is the number of leaves after the trees have been combined.&nbsp; 
+	This is a requirement because you want to make sure that all the hashes of 
+	the data verify order and have not mutated.</li>
+	<li>However, by knowing the number of leaves that represented the 
+	intermediate root hash, the algorithm can quickly identify the specific node 
+	that consists of either:<ul>
+		<li>the matching hash (if the number of leaves is a power of 2).</li>
+		<li>the child pairs needed to reconstruct the intermediate root hash.</li>
+	</ul>
+	</li>
+	<li><img border="0" src="important.png" width="38" height="32">&nbsp; This 
+	implies that when a tree is added to the &quot;log&quot; (existing set of records), 
+	the number of leaves now present in the tree is retained along with the root 
+	hash.</li>
+	<li>In many cases, where one particular system is solely responsible for 
+	appending trees, this is simple because the system of course knows how many 
+	leaves are in each tree it is adding.</li>
+	<li>In a distributed system, where there can be other participants appending 
+	trees (along with the added complexity of preventing simultaneous append 
+	operations) the participant adding the tree needs to be informed as to the 
+	number of leaves in the tree so that a consistency check can be performed 
+	later.&nbsp; </li>
+	<li>To avoid this extra knowledge, the maintainer of the full Merkle tree 
+	can utilize a dictionary mapping tree roots that were appended to leaf 
+	counts.&nbsp; This is probably a more secure way of managing the required 
+	information.</li>
+</ul>
+<p>On the other hand, the algorithm is very efficient because it begins with the 
+leftmost node at the level that is log<sub>2</sub>(<i>m</i>).&nbsp; This avoids 
+having to compute the hashes for potentially thousands of leaves starting from 
+the first leaf, but still guarantees that if the resulting proof matches the 
+hash when the tree was appended, the order of the records and the records 
+themselves are valid. </p>
+<h4><a name="ConsistencyProofGeneralAlgorithm18">Consistency Proof General Algorithm</a></h4>
+<p>You can read through the consistency proof in section 2.1.2 of RFC 6962<sup>9</sup>, 
+or you can just go with this, as illustrated by the following DRAKON diagram:</p>
+<p><img border="0" src="consistencyProofFlowchart.png" width="853" height="630"></p>
+<p><b>Rule 1</b>: Find the leftmost node of the tree from which we can start our 
+consistency proof.&nbsp; Usually, this will be a node representing a piece (the 
+left piece) of the hash needed to obtain the old root hash.</p>
+<p>Given <i>m</i>, the number of leaves in the master tree after a sub-tree was 
+added, take <i>n</i>=log<sub>2</sub>(<i>m</i>) to find the index of the node 
+representing at most<i> m</i> leaves.&nbsp; This index is the left-branch 
+traversal up the tree, starting from the leftmost leaf, of the tree.</p>
+<p>For example:</p>
+<p>3 leaves: log<sub>2</sub>(3) = 1.58 (we start at node &quot;01&quot;)<br>
+4 leaves: log<sub>2</sub>(4) = 2 (we start at node &quot;0123&quot;)<br>
+6 leaves: log<sub>2</sub>(6) = 2.58 (we start at node &quot;0123&quot;)</p>
+<p>This gives you the index (rounded down) of the node whose hash you start 
+with.&nbsp; By starting at the correct level, we know that the sub-tree starts 
+at this position or is a composite -- if there's a remainder of log<sub>2</sub>(<i>m</i>) 
+-- of the current node's hash and the hash of a sibling node.&nbsp; This diagram 
+should help (note that level 3 is actually not representing 8 leaves, because 
+all 8 leaves haven't been added yet):</p>
+<p><img border="0" src="r4.png" width="603" height="221"></p>
+<p>Also, set <i>k</i>, the number of leaves for this node (<u>nodes have to 
+compute their leaf count because the last leaf of a tree might be missing.</u>)</p>
+<p>Also set the initial sibling node (SN) to the sibling of the node acquired by 
+Rule 1, if it exists.</p>
+<p>if m-k == 0, proceed with rule 3.</p>
+<p>Three scenarios using the above diagram:</p>
+<p>m of 2: index = 1 (the &quot;01&quot; node) and it has 2 leaves, so we move on to rule 
+3.</p>
+<p>m of 4: index = 2 (the &quot;01234&quot; node), and it has 4 leaves, so we move on to 
+rule 3.</p>
+<p>m of 3: index = 1 (&quot;the &quot;01&quot; node) and it has 2 leaves, but m-k = 1, so we 
+move on to rule 2.</p>
+<p><b>Rule 2</b>:&nbsp; </p>
+<p>if m-k == # of SN's leaves, concatenate the hash of&nbsp; SN and exit 
+Rule 2, as this represents the hash of the old root.</p>
+<p>if m-k &lt; # of SN's leaves, set SN to SN's left child node and repeat Rule 2.</p>
+<p>if m-k &gt; # of SN's leaves, concatenate the hash of SN, increment k by SN's # 
+of leaves, and set SN to its parent's right node.</p>
+<p>In this manner, we always end of with the hashes from which we can 
+reconstruct the old root hash.</p>
+<p>A few scenarios:</p>
+<p><b>m = 3</b>.&nbsp; k=2 (the number of leaves under &quot;01&quot;), SN = &quot;23&quot;<br>
+SN's # of leaves is 2.&nbsp; m-k &lt; 2, so SN = left child of SN, which is &quot;2&quot;<br>
+SN's # of leaves is 1(well, it <u>is</u> a leaf)<br>
+m-k = SN's # of leaves, so we know to use the hash for &quot;01&quot; plus the hash for 
+&quot;2&quot; to construct the old root &quot;012&quot;.</p>
+<p><b>m = 4</b> is handled by rule 1</p>
+<p><b>m = 5</b>. k=4 (the number of leaves under &quot;0123&quot;).&nbsp; SN=&quot;456&quot;<br>
+SN's # of leaves is 3.<br>
+m-k &lt; SN's # of leaves, so SN = left child of SN, which is &quot;45&quot;<br>
+SN's # of leaves is now 2<br>
+m-k &lt; SN's # of leaves, so SN = left child of SN, which is &quot;4&quot;<br>
+SN's # of leaves is now 1 (it's a leaf)<br>
+m-k = SN's # of leaves, so we know to use the hash for &quot;0123&quot; plus the hash for 
+&quot;4&quot; to construct the old root &quot;01234&quot;.</p>
+<p>This is a good example of constructing a consistency tree for any number of 
+leaves starting from the first leaf, whether the old root was part of a tree 
+that was added to the master tree or not.&nbsp; However, this is not the typical 
+scenario.&nbsp; Moving along:</p>
+<p><b>m = 6</b>. k=4 (the number of leaves under &quot;0123&quot;).&nbsp; SN=&quot;456&quot;<br>
+SN's # of leaves is 3.<br>
+m-k &lt; SN's # of leaves, so SN = left child of SN, which is &quot;45&quot;<br>
+SN's # of leaves is now 2.<br>
+m-k - SN's # of leaves, so we know to use the hash for &quot;0123&quot; plus the hash for 
+&quot;45&quot; to construct the old root &quot;012345&quot;.</p>
+<p><b>m = 7</b>. k=4 (the number of leaves under &quot;0123&quot;).&nbsp; SN=&quot;456&quot;<br>
+m-k = SN's # of leaves, so we know to use the hash for &quot;0123&quot; plus the hash for 
+&quot;456&quot; to construct the existing root &quot;0123456&quot;</p>
+<p><b>Rule 3</b>: Continue with the audit proof (using the appropriate left or right 
+sibling) for the node (not necessarily a leaf) of the last node in the 
+consistency proof.&nbsp; </p>
+<p>For example, given this consistency proof to the old hash for the tree 
+representing &quot;01234&quot; (this is the more interesting example):</p>
+<p><img border="0" src="consistency4.png" width="644" height="227"></p>
+<p>The nodes involved in the remainder of the proof, so that we obtain the root 
+hash, are the hashes of the nodes &quot;5&quot; and &quot;67&quot;.&nbsp; </p>
+<p><img border="0" src="consistency8.png" width="646" height="223"></p>
+<p>We need &quot;5&quot; to obtain &quot;45&quot;, and we need &quot;67&quot; to obtain &quot;4567&quot;.&nbsp; Cool 
+stuff!</p>
+<h3><a name="Placeholder19">Placeholder</a></h3>
+<h2><a name="TheDemo20">The Demo</a></h2>
+<p><img border="0" src="demo1.png" width="721" height="511"></p>
+<p>The demo lets you explore creating Merkle trees and performing audit and 
+consistency proofs.&nbsp; The graphic surface is implemented as an embedded
+<a href="https://www.codeproject.com/Articles/1136050/FlowSharp">FlowSharp</a> 
+service.</p>
+<p><img border="0" src="note.png" width="24" height="32"> The demo communicates 
+with the FlowSharp service using a websocket on port 1100 for the purpose of 
+creating shapes and connectors on the canvas.&nbsp; You will probably see the 
+Windows Firewall alert when you first run the demo.</p>
+<p><img border="0" src="firewall.png" width="527" height="381"></p>
+<p>Please click on &quot;Allow access.&quot;</p>
+<h3><a name="ChangingtheNumberofLeaves21">Changing the Number of Leaves</a></h3>
+<p><img border="0" src="demo2.png" width="156" height="28"></p>
+<p>You can select up to 16 leaves.&nbsp; The leaf simulated hashes are 
+represented as 0-F for rendering convenience</p>
+<h3><a name="TestinganAuditProof22">Testing an Audit Proof</a></h3>
+<p><img border="0" src="demo3.png" width="266" height="199"></p>
+<p>You can test an audit proof by selecting the leaf you wish to audit (the leaf 
+number selection is 0-15, where 10-15 are represented as A-F on the graph.)&nbsp; 
+When you click on Show Me, the proof is displayed and the verification routine 
+is run.&nbsp; The graph also shows you the nodes involved in performing the 
+audit proof (see the numerous screenshots above.)</p>
+<h3><a name="TestingaConsistencyProof23">Testing a Consistency Proof</a></h3>
+<p><img border="0" src="demo4.png" width="265" height="236"></p>
+<p>You can test a consistency proof by selecting the number of leaves for which 
+you wish to test the consistency.&nbsp; The nodes involved in computing the old 
+root are indicated in yellow, the nodes for finishing the proof using the audit 
+proof are shown in purple:</p>
+<p><img border="0" src="demo5.png" width="648" height="221"></p>
+<p>The checkbox &quot;only to root node&quot; is basically just for making it easy to 
+create the screenshots where I discuss the first have of the consistency proof 
+-- you don't get the purple nodes involved in the second step, the audit proof.</p>
+<h2><a name="MerkleTreeImplementation24">Merkle Tree Implementation</a></h2>
+<p>What follows is the implementation of the Merkle tree.&nbsp; There are three 
+classes:</p>
+<ul>
+	<li>MerkleHash</li>
+	<li>MerkleNode</li>
+	<li>MerkleTree</li>
+</ul>
+<p>Let's look at each.</p>
+<h3><a name="MerkleHashClass25">MerkleHash Class</a></h3>
+<p>This class provides a few static create operators, equality tests, and of 
+course computes the hash from a byte array, string, or two other MerkleHash 
+instances.</p>
+<pre>namespace Clifton.Blockchain
+{
+  public class MerkleHash
+  {
+    public byte[] Value { get; protected set; }
+
+    protected MerkleHash()
+    {
+    }
+
+    public static MerkleHash Create(byte[] buffer)
+    {
+      MerkleHash hash = new MerkleHash();
+      hash.ComputeHash(buffer);
+
+      return hash;
+    }
+
+    public static MerkleHash Create(string buffer)
+    {
+      return Create(Encoding.UTF8.GetBytes(buffer));
+    }
+
+    public static MerkleHash Create(MerkleHash left, MerkleHash right)
+    {
+      return Create(left.Value.Concat(right.Value).ToArray());
+    }
+
+    public static bool operator ==(MerkleHash h1, MerkleHash h2)
+    {
+      return h1.Equals(h2);
+    }
+
+    public static bool operator !=(MerkleHash h1, MerkleHash h2)
+    {
+      return !h1.Equals(h2);
+    }
+
+    public override int GetHashCode()
+    {
+      return base.GetHashCode();
+    }
+
+    public override bool Equals(object obj)
+    {
+      MerkleTree.Contract(() =&gt; obj is MerkleHash, &quot;rvalue is not a MerkleHash&quot;);
+      return Equals((MerkleHash)obj);
+    }
+
+    public override string ToString()
+    {
+      return BitConverter.ToString(Value).Replace(&quot;-&quot;, &quot;&quot;);
+    }
+
+    public void ComputeHash(byte[] buffer)
+    {
+      SHA256 sha256 = SHA256.Create();
+      SetHash(sha256.ComputeHash(buffer));
+    }
+
+    public void SetHash(byte[] hash)
+    {
+      MerkleTree.Contract(() =&gt; hash.Length == Constants.HASH_LENGTH, &quot;Unexpected hash length.&quot;);
+      Value = hash;
+    }
+
+    public bool Equals(byte[] hash)
+    {
+      return Value.SequenceEqual(hash);
+    }
+
+    public bool Equals(MerkleHash hash)
+    {
+      bool ret = false;
+
+      if (((object)hash) != null)
+      {
+        ret = Value.SequenceEqual(hash.Value);
+      }
+
+      return ret;
+    }
+  }
+}</pre>
+<h3><a name="MerkeNodeClass26">MerkeNode Class</a></h3>
+<p>This class manages everything about a node -- it's parent, children, and of 
+course it's hash.&nbsp; The only really interesting feature of the MerkleNode 
+class is that it implements a bottom-up/left-right iterator.</p>
+<pre>namespace Clifton.Blockchain
+{
+  public class MerkleHash
+  {
+    public byte[] Value { get; protected set; }
+
+    protected MerkleHash()
+    {
+    }
+
+    public static MerkleHash Create(byte[] buffer)
+    {
+      MerkleHash hash = new MerkleHash();
+      hash.ComputeHash(buffer);
+
+      return hash;
+    }
+
+    public static MerkleHash Create(string buffer)
+    {
+      return Create(Encoding.UTF8.GetBytes(buffer));
+    }
+
+    public static MerkleHash Create(MerkleHash left, MerkleHash right)
+    {
+      return Create(left.Value.Concat(right.Value).ToArray());
+    }
+
+    public static bool operator ==(MerkleHash h1, MerkleHash h2)
+    {
+      return h1.Equals(h2);
+    }
+
+    public static bool operator !=(MerkleHash h1, MerkleHash h2)
+    {
+      return !h1.Equals(h2);
+    }
+
+    public override int GetHashCode()
+    {
+      return base.GetHashCode();
+    }
+
+    public override bool Equals(object obj)
+    {
+      MerkleTree.Contract(() =&gt; obj is MerkleHash, &quot;rvalue is not a MerkleHash&quot;);
+      return Equals((MerkleHash)obj);
+    }
+
+    public override string ToString()
+    {
+      return BitConverter.ToString(Value).Replace(&quot;-&quot;, &quot;&quot;);
+    }
+
+    public void ComputeHash(byte[] buffer)
+    {
+      SHA256 sha256 = SHA256.Create();
+      SetHash(sha256.ComputeHash(buffer));
+    }
+
+    public void SetHash(byte[] hash)
+    {
+      MerkleTree.Contract(() =&gt; hash.Length == Constants.HASH_LENGTH, &quot;Unexpected hash length.&quot;);
+      Value = hash;
+    }
+
+    public bool Equals(byte[] hash)
+    {
+      return Value.SequenceEqual(hash);
+    }
+
+    public bool Equals(MerkleHash hash)
+    {
+      bool ret = false;
+
+      if (((object)hash) != null)
+      {
+        ret = Value.SequenceEqual(hash.Value);
+      }
+
+      return ret;
+    }
+  }
+}</pre>
+<h3><a name="MerkleTreeClass27">MerkleTree Class</a></h3>
+<p>This class is responsible for building the tree and performing the audit and 
+consistency proofs.&nbsp; A couple static methods are used for verifying an 
+audit and consistency proof, so you don't have to write the verification 
+algorithms yourself.&nbsp; I've broken down the class into it's constituent 
+components.</p>
+<h3><a name="PropertiesandFields28">Properties and Fields</a></h3>
+<pre>namespace Clifton.Blockchain
+{
+  public class MerkleTree
+  {
+    public MerkleNode RootNode { get; protected set; }
+
+    protected List&lt;MerkleNode&gt; nodes;
+    protected List&lt;MerkleNode&gt; leaves;</pre>
+<p>That's it - very simple.</p>
+<h4><a name="TheContractMethod29">The Contract Method</a></h4>
+<pre>public static void Contract(Func&lt;bool&gt; action, string msg)
+{
+  if (!action())
+  {
+    throw new MerkleException(msg);
+  }
+}
+</pre>
+<p>I use this method for parameter and state verification.</p>
+<h4><a name="Constructor30">Constructor</a></h4>
+<pre>
+public MerkleTree()
+{
+  nodes = new List&lt;MerkleNode&gt;();
+  leaves = new List&lt;MerkleNode&gt;();
+}</pre>
+<h4><a name="AppendingLeaves31">Appending Leaves</a></h4>
+
+<pre>
+public MerkleNode AppendLeaf(MerkleNode node)
+{
+  nodes.Add(node);
+  leaves.Add(node);
+
+  return node;
+}
+
+public void AppendLeaves(MerkleNode[] nodes)
+{
+  nodes.ForEach(n =&gt; AppendLeaf(n));
+}
+
+public MerkleNode AppendLeaf(MerkleHash hash)
+{
+  var node = CreateNode(hash);
+  nodes.Add(node);
+  leaves.Add(node);
+
+  return node;
+}
+
+public List&lt;MerkleNode&gt; AppendLeaves(MerkleHash[] hashes)
+{
+  List&lt;MerkleNode&gt; nodes = new List&lt;MerkleNode&gt;();
+  hashes.ForEach(h =&gt; nodes.Add(AppendLeaf(h)));
+
+  return nodes;
+}</pre>
+<h4><a name="AddingaTreetoanExistingTree32">Adding a Tree to an Existing Tree</a></h4>
+<pre>public MerkleHash AddTree(MerkleTree tree)
+{
+  Contract(() =&gt; leaves.Count &gt; 0, &quot;Cannot add to a tree with no leaves.&quot;);
+  tree.leaves.ForEach(l =&gt; AppendLeaf(l));
+
+  return BuildTree();
+}</pre>
+<h4><a name="BuildingtheTreefromitsLeaves33">Building the Tree from its Leaves</a></h4>
+<pre>/// &lt;summary&gt;
+/// Builds the tree for leaves and returns the root node.
+/// &lt;/summary&gt;
+public MerkleHash BuildTree()
+{
+  // We do not call FixOddNumberLeaves because we want the ability to append 
+  // leaves and add additional trees without creating unecessary wasted space in the tree.
+  Contract(() =&gt; leaves.Count &gt; 0, &quot;Cannot build a tree with no leaves.&quot;);
+  BuildTree(leaves);
+
+  return RootNode.Hash;
+}
+
+/// &lt;summary&gt;
+/// Recursively reduce the current list of n nodes to n/2 parents.
+/// &lt;/summary&gt;
+/// &lt;param name=&quot;nodes&quot;&gt;&lt;/param&gt;
+protected void BuildTree(List&lt;MerkleNode&gt; nodes)
+{
+  Contract(() =&gt; nodes.Count &gt; 0, &quot;node list not expected to be empty.&quot;);
+
+  if (nodes.Count == 1)
+  {
+    RootNode = nodes[0];
+  }
+  else
+  {
+    List&lt;MerkleNode&gt; parents = new List&lt;MerkleNode&gt;();
+
+    for (int i = 0; i &lt; nodes.Count; i += 2)
+    {
+      MerkleNode right = (i + 1 &lt; nodes.Count) ? nodes[i + 1] : null;
+      MerkleNode parent = CreateNode(nodes[i], right);
+      parents.Add(parent);
+    }
+
+    BuildTree(parents);
+  }
+}</pre>
+<h4><a name="AuditProof34">Audit Proof</a></h4>
+
+<pre>/// &lt;summary&gt;
+/// Returns the audit proof hashes to reconstruct the root hash.
+/// &lt;/summary&gt;
+/// &lt;param name=&quot;leafHash&quot;&gt;The leaf hash we want to verify exists in the tree.&lt;/param&gt;
+/// &lt;returns&gt;The audit trail of hashes needed to create the root, or an empty list if the leaf hash doesn't exist.&lt;/returns&gt;
+public List&lt;MerkleProofHash&gt; AuditProof(MerkleHash leafHash)
+{
+  List&lt;MerkleProofHash&gt; auditTrail = new List&lt;MerkleProofHash&gt;();
+  var leafNode = FindLeaf(leafHash);
+
+  if (leafNode != null)
+  {
+    Contract(() =&gt; leafNode.Parent != null, &quot;Expected leaf to have a parent.&quot;);
+    var parent = leafNode.Parent;
+    BuildAuditTrail(auditTrail, parent, leafNode);
+  }
+
+  return auditTrail;
+}
+
+protected void BuildAuditTrail(List&lt;MerkleProofHash&gt; auditTrail, MerkleNode parent, MerkleNode child)
+{
+  if (parent != null)
+  {
+    Contract(() =&gt; child.Parent == parent, &quot;Parent of child is not expected parent.&quot;);
+    var nextChild = parent.LeftNode == child ? parent.RightNode : parent.LeftNode;
+    var direction = parent.LeftNode == child ? MerkleProofHash.Branch.Left : MerkleProofHash.Branch.Right;
+
+    // For the last leaf, the right node may not exist. In that case, we ignore it because it's
+    // the hash we are given to verify.
+    if (nextChild != null)
+    {
+      auditTrail.Add(new MerkleProofHash(nextChild.Hash, direction));
+    }
+
+    BuildAuditTrail(auditTrail, child.Parent.Parent, child.Parent);
+  }
+}</pre>
+<h4>
+Consistency Proof</h4>
+<pre>
+/// &lt;summary&gt;
+/// Verifies ordering and consistency of the first n leaves, such that we reach the expected subroot.
+/// This verifies that the prior data has not been changed and that leaf order has been preserved.
+/// m is the number of leaves for which to do a consistency check.
+/// &lt;/summary&gt;
+public List&lt;MerkleProofHash&gt; ConsistencyProof(int m)
+{
+  // Rule 1:
+  // Find the leftmost node of the tree from which we can start our consistency proof.
+  // Set k, the number of leaves for this node.
+  List&lt;MerkleProofHash&gt; hashNodes = new List&lt;MerkleProofHash&gt;();
+  int idx = (int)Math.Log(m, 2);
+
+  // Get the leftmost node.
+  MerkleNode node = leaves[0];
+
+  // Traverse up the tree until we get to the node specified by idx.
+  while (idx &gt; 0)
+  {
+    node = node.Parent;
+    --idx;
+  }
+
+  int k = node.Leaves().Count();
+  hashNodes.Add(new MerkleProofHash(node.Hash, MerkleProofHash.Branch.OldRoot));
+
+  if (m == k)
+  {
+    // Continue with Rule 3 -- the remainder is the audit proof
+  }
+  else
+  {
+    // Rule 2:
+    // Set the initial sibling node (SN) to the sibling of the node acquired by Rule 1.
+    // if m-k == # of SN's leaves, concatenate the hash of the sibling SN and exit Rule 2, as this represents the hash of the old root.
+    // if m - k &lt; # of SN's leaves, set SN to SN's left child node and repeat Rule 2.
+
+    // sibling node:
+    MerkleNode sn = node.Parent.RightNode;
+    bool traverseTree = true;
+
+    while (traverseTree)
+    {
+      Contract(() =&gt; sn != null, &quot;Sibling node must exist because m != k&quot;);
+      int sncount = sn.Leaves().Count();
+
+      if (m - k == sncount)
+      {
+        hashNodes.Add(new MerkleProofHash(sn.Hash, MerkleProofHash.Branch.OldRoot));
+        break;
+      }
+
+      if (m - k &gt; sncount)
+      {
+        hashNodes.Add(new MerkleProofHash(sn.Hash, MerkleProofHash.Branch.OldRoot));
+        sn = sn.Parent.RightNode;
+        k += sncount;
+      }
+      else // (m - k &lt; sncount)
+      {
+        sn = sn.LeftNode;
+      }
+    }
+  }
+
+  // Rule 3: Apply ConsistencyAuditProof below.
+
+  return hashNodes;
+}
+
+/// &lt;summary&gt;
+/// Completes the consistency proof with an audit proof using the last node in the consistency proof.
+/// &lt;/summary&gt;
+public List&lt;MerkleProofHash&gt; ConsistencyAuditProof(MerkleHash nodeHash)
+{
+  List&lt;MerkleProofHash&gt; auditTrail = new List&lt;MerkleProofHash&gt;();
+
+  var node = RootNode.Single(n =&gt; n.Hash == nodeHash);
+  var parent = node.Parent;
+  BuildAuditTrail(auditTrail, parent, node);
+
+  return auditTrail;
+}
+</pre>
+<h4>
+Verify Audit Proof</h4>
+<pre>
+/// &lt;summary&gt;
+/// Verify that if we walk up the tree from a particular leaf, we encounter the expected root hash.
+/// &lt;/summary&gt;
+public static bool VerifyAudit(MerkleHash rootHash, MerkleHash leafHash, List&lt;MerkleProofHash&gt; auditTrail)
+{
+  Contract(() =&gt; auditTrail.Count &gt; 0, &quot;Audit trail cannot be empty.&quot;);
+  MerkleHash testHash = leafHash;
+
+  // TODO: Inefficient - compute hashes directly.
+  foreach (MerkleProofHash auditHash in auditTrail)
+  {
+    testHash = auditHash.Direction == MerkleProofHash.Branch.Left ?
+    MerkleHash.Create(testHash.Value.Concat(auditHash.Hash.Value).ToArray()) :
+    MerkleHash.Create(auditHash.Hash.Value.Concat(testHash.Value).ToArray());
+  } 
+
+  return rootHash == testHash;
+}<pre>
+<h4><a name="GettheAuditProofasHashPairsforVerification35">Get the Audit Proof as Hash Pairs for Verification</a></h4>
+<pre>
+/// &lt;summary&gt;
+/// For demo / debugging purposes, we return the pairs of hashes used to verify the audit proof.
+/// &lt;/summary&gt;
+public static List&lt;Tuple&lt;MerkleHash, MerkleHash&gt;&gt; AuditHashPairs(MerkleHash leafHash, List&lt;MerkleProofHash&gt; auditTrail)
+{
+  Contract(() =&gt; auditTrail.Count &gt; 0, &quot;Audit trail cannot be empty.&quot;);
+  var auditPairs = new List&lt;Tuple&lt;MerkleHash, MerkleHash&gt;&gt;();
+  MerkleHash testHash = leafHash;
+
+  // TODO: Inefficient - compute hashes directly.
+  foreach (MerkleProofHash auditHash in auditTrail)
+  {
+    switch (auditHash.Direction)
+    {
+      case MerkleProofHash.Branch.Left:
+        auditPairs.Add(new Tuple&lt;MerkleHash, MerkleHash&gt;(testHash, auditHash.Hash));
+        testHash = MerkleHash.Create(testHash.Value.Concat(auditHash.Hash.Value).ToArray());
+        break;
+
+      case MerkleProofHash.Branch.Right:
+        auditPairs.Add(new Tuple&lt;MerkleHash, MerkleHash&gt;(auditHash.Hash, testHash));
+        testHash = MerkleHash.Create(auditHash.Hash.Value.Concat(testHash.Value).ToArray());
+        break;
+    }
+  }
+
+  return auditPairs;
+}<pre>
+<h4><a name="VerifyConsistencyProof36">Verify Consistency Proof</a></h4>
+<pre>
+public static bool VerifyConsistency(MerkleHash oldRootHash, List&lt;MerkleProofHash&gt; proof)
+{
+  MerkleHash hash, lhash, rhash;
+
+  if (proof.Count &gt; 1)
+  {
+    lhash = proof[proof.Count - 2].Hash;
+    int hidx = proof.Count - 1;
+    hash = rhash = MerkleTree.ComputeHash(lhash, proof[hidx].Hash);
+    hidx -= 2;
+
+    while (hidx &gt;= 0)
+    {
+      lhash = proof[hidx].Hash;
+      hash = rhash = MerkleTree.ComputeHash(lhash, rhash);
+      --hidx;
+    }
+  }
+  else
+  {
+    hash = proof[0].Hash;
+  }
+
+  return hash == oldRootHash;
+}
+</pre>
+<h4><a name="FindaLeafintheListofLeaves37">Find a Leaf in the List of Leaves</a></h4>
+<pre>
+protected MerkleNode FindLeaf(MerkleHash leafHash)
+{
+  // TODO: We can improve the search for the leaf hash by maintaining a sorted list of leaf hashes.
+  // We use First because a tree with an odd number of leaves will duplicate the last leaf
+  // and will therefore have the same hash.
+  return leaves.FirstOrDefault(l =&gt; l.Hash == leafHash);
+}
+</pre>
+<h4><a name="CreateMerkleNodeOverridesforCustomNodeRequirements38">Create MerkleNode Overrides for Custom Node Requirements</a></h4>
+<pre>
+// Override in derived class to extend the behavior.
+// Alternatively, we could implement a factory pattern.
+
+protected virtual MerkleNode CreateNode(MerkleHash hash)
+{
+  return new MerkleNode(hash);
+}
+
+protected virtual MerkleNode CreateNode(MerkleNode left, MerkleNode right)
+{
+  return new MerkleNode(left, right);
+}
+</pre>
+<h4><a name="OtherStuff-FixOddNumberLeaves39">Other Stuff - FixOddNumberLeaves</a></h4>
+<p>In bitcoin, a tree always has an even number of leaves.&nbsp; If the last 
+leaf in the tree is the left branch, then that last leaf is duplicated into the 
+right leaf position, and the parent's hash is therefore computed from the 
+concatenation of same the (left branch) hash.&nbsp; You can use 
+<code>FixOddNumberLeaves</code> to create this behavior.</p>
+<pre>/// &lt;summary&gt;
+/// If we have an odd number of leaves, add a leaf that
+/// is a duplicate of the last leaf hash so that when we add the leaves of the new tree,
+/// we don't change the root hash of the current tree.
+/// This method should only be used if you have a specific reason that you need to balance
+/// the last node with it's right branch, for example as a pre-step to computing an audit trail
+/// on the last leaf of an odd number of leaves in the tree.
+/// &lt;/summary&gt;
+public void FixOddNumberLeaves()
+{
+  if ((leaves.Count &amp; 1) == 1)
+  {
+    var lastLeaf = leaves.Last();
+    var l = AppendLeaf(lastLeaf.Hash);
+  }
+}
+</pre>
+<h4>
+Other Stuff - Compute Hash Given Two Hashes</h4>
+<pre>
+public static MerkleHash ComputeHash(MerkleHash left, MerkleHash right)
+{
+  return MerkleHash.Create(left.Value.Concat(right.Value).ToArray());
+}
+</pre>
+<h3><a name="MerkleProofHashClass40">MerkleProofHash Class</a></h3>
+<p>This class is used by the audit proof, associating the left/right branch with 
+the proof hash, which is necessary to concatenate the two child hashes in the 
+correct order to obtain the parent hash.</p>
+<pre>namespace Clifton.Blockchain
+{
+  public class MerkleProofHash
+  {
+    public enum Branch
+    {
+      Left,
+      Right,
+      OldRoot, // used for linear list of hashes to compute the old root in a consistency proof.
+    }
+
+    public MerkleHash Hash { get; protected set; }
+    public Branch Direction { get; protected set; }
+
+    public MerkleProofHash(MerkleHash hash, Branch direction)
+    {
+      Hash = hash;
+      Direction = direction;
+    }
+
+    public override string ToString()
+    {
+      return Hash.ToString();
+    }
+  }
+}</pre>
+<h3><a name="Placeholder41">Placeholder</a></h3>
+<h2><a name="UnitTests42">Unit Tests</a></h2>
+<p><img border="0" src="unittests.png" width="308" height="327"></p>
+<p>There are 14 unit tests, some of which are silly and most of which are 
+trivial.&nbsp; The most interesting unit test is the one for the consistency 
+proof, so that's the only one I'm going to describe here.</p>
+<h3><a name="ConsistencyProofUnitTest43">Consistency Proof Unit Test</a></h3>
+<p><img border="0" src="unittest.png" width="14" height="32"> This unit test 
+creates trees with 3 to 100 leaves and for each tree, tests that the old root 
+can be obtained for leaves [1, n-1] where n is the number of leaves in the test 
+tree.</p>
+<pre>[TestMethod]
+public void ConsistencyTest()
+{
+  // Start with a tree with 2 leaves:
+  MerkleTree tree = new MerkleTree();
+  var startingNodes = tree.AppendLeaves(new MerkleHash[]
+  {
+    MerkleHash.Create(&quot;1&quot;),
+    MerkleHash.Create(&quot;2&quot;),
+  });
+
+  MerkleHash firstRoot = tree.BuildTree();
+
+  List&lt;MerkleHash&gt; oldRoots = new List&lt;MerkleHash&gt;() { firstRoot };
+
+  // Add a new leaf and verify that each time we add a leaf, we can get a consistency check
+  // for all the previous leaves.
+  for (int i = 2; i &lt; 100; i++)
+  {
+    tree.AppendLeaf(MerkleHash.Create(i.ToString())); //.Text=i.ToString();
+    tree.BuildTree();
+
+    // After adding a leaf, verify that all the old root hashes exist.
+    oldRoots.ForEachWithIndex((oldRootHash, n) =&gt;
+    {
+      List&lt;MerkleProofHash&gt; proof = tree.ConsistencyProof(n+2);
+      MerkleHash hash, lhash, rhash;
+
+      if (proof.Count &gt; 1)
+      {
+        lhash = proof[proof.Count - 2].Hash;
+        int hidx = proof.Count - 1;
+        hash = rhash = MerkleTree.ComputeHash(lhash, proof[hidx].Hash);
+        hidx -= 2;
+
+        while (hidx &gt;= 0)
+        {
+          lhash = proof[hidx].Hash;
+          hash = rhash = MerkleTree.ComputeHash(lhash, rhash);
+          --hidx;
+        }
+      }
+      else
+      {
+        hash = proof[0].Hash;
+      }
+
+      Assert.IsTrue(hash == oldRootHash, &quot;Old root hash not found for index &quot; + i + &quot; m = &quot; + (n+2).ToString());
+    });
+
+    // Then we add this root hash as the next old root hash to check.
+    oldRoots.Add(tree.RootNode.Hash);
+  }
+}</pre>
+<h2><a name="Monotonic1">Monotonic Hashes</a></h2>
+<p>Hash trees are one way of creating efficient proofs of data integrity.&nbsp; 
+Monotonic (sequentially ordered) can be an appropriate way of working with 
+hashes as well.&nbsp; One such example is
+<a href="http://ceptr.org/projects/holochain">Holochain</a> &quot;...a shared DHT in 
+which each piece of data is rooted in the signed hash chain of one or more 
+parties. It is a validating DHT so data cannot propagate without first being 
+validated by shared validation rules held by every node&quot;<sup>13</sup>&nbsp; It's 
+also possible to combine the two techniques together.&nbsp; As
+<a href="https://www.codeproject.com/Articles/894188/Introducing-Semtrex">Arthur</a> 
+wrote to me over Slack:</p>
+<p><i>Merkle trees can be used inside a holochain entry to have truly PRIVATE 
+data (not just encrypted), in a shared chain space.&nbsp; What I mean by this 
+is... Suppose you have a data structure with these 6 fields: </i></p>
+<ol>
+	<li><i>Sender_ID </i></li>
+	<li><i>Sender_Previous_Hash</i></li>
+	<li><i>Receiver_ID</i></li>
+	<li><i>Receiver_Previous_Hash</i></li>
+	<li><i>Number_Credits_Sent</i></li>
+	<li><i>Transaction_Payload</i></li>
+</ol>
+<p><i>If you structured these in a Merkle tree with these 6 leaves, you could 
+have both parties to the transaction commit the full transaction to their 
+private chains, and then both people put and sign a partial Merkle tree to the 
+shared DHT which does NOT contain the leaf node for field #6. This would be 
+adequate for doing a Merkle proof on the first 5 fields which need to be 
+published for managing the currency, allowing them to have digital assets, or 
+any other type of data in the hidden field which can ALWAYS stay hidden on your 
+local chain, visible only to you, without compromising the integrity of the data 
+needed to manage the mutual credit cryptocurrency.<br>
+<br>
+On blockchains all the data in the transaction goes onto the chain and you have 
+to encrypt the parts you want to keep private, and hope that neither your keys 
+nor the encryption scheme you've used are ever compromised on this permanent, 
+public record. On a holochain, because of the mechanism of the shared DHT being 
+'backed&quot; by data validation from local chains, you have the possibility of using 
+Merkle proofs to blend public/private data in ways which let you actually keep 
+the private data private.</i></p>
+<h2><a name="Conclusion44">Conclusionn</a></h2>
+<p>Writing this article was definitely the embodiment of the experience &quot;you 
+only understand it if you can teach it.&quot;&nbsp; It took a lot of research and 
+digging to understand not just the algorithms, specifically for the consistency 
+proof.&nbsp; More importantly, understanding the &quot;why&quot; was not intuitively 
+obvious.&nbsp; I ended up doing a mental Q&amp;A session with myself, which I 
+decided to add here just so you can see what my basic questions were and how I 
+decided to answer them, at least for myself.&nbsp; Some of these answer may not 
+be very good, some may go down unnecessary rabbit holes, etc., so keep in mind 
+that this represents a snapshot of my own investigation before even starting 
+this article.</p>
+<p>Before you read my probably bizarre though process below, one more concluding 
+thought -- blockchains and their variants are, in my opinion, destined to become 
+a core component in distributed data management.&nbsp; Merkle trees and similar 
+hash tree implementations are a cornerstone to how this technology works. </p>
+<p>Data Synchronization Q&amp;A</p>
+<ul>
+	<li>As the &quot;client&quot;, you're downloading a large file, say 10GB, spread 
+	across peers in chunks of 4096 bytes.</li>
+	<li>You need a trusted authority server to tell you whether each block is 
+	valid.</li>
+	<li>From the server, you can be given the root hash and, as each block comes 
+	in, you start filling in the Merkle tree yourself. </li>
+	<li><u>However, you'll need all the data downloaded before you can complete 
+	the tree to verify the root.</u></li>
+	<li>Instead, you can ask the server to send you the path of a hashed chunk 
+	(the leaf) to the root hash and verify it yourself. This enables you to 
+	verify each chunk and if it is faulty, request it from somewhere else, 
+	simultaneously while you are downloading other chunks. Furthermore, you're 
+	not maintaining all the hashes of the chunks and building the entire Merkle 
+	tree yourself. So it's faster for verifying a chunk, and it's less memory on 
+	your part to hold the entire Merkle tree.</li>
+	<li>The server (as trusted authority) doesn't hold the data, but it has to 
+	have the Merkle tree, including leaf hashes.</li>
+</ul>
+<p>With regards to data synchronization, you basically have three options:</p>
+<ol>
+	<li>Download all the data so you can verify the Merkle root hash</li>
+	<li>Download from a trusted authority the Merkle tree so you can test with 
+	an incomplete recordset.</li>
+	<li>Ask the server to perform an audit proof on a particular leaf.</li>
+</ol>
+<p>Validation Q&amp;A:</p>
+<p>Q1: Why not just ask the server if the leaf exists in tree with the specific 
+root?</p>
+<p>Q2: Why should the server even bother with storing a Merkle tree of the leaf 
+hashes? (see answer to Q4 as well)</p>
+<p>A1: You could do that, but the SHA256 hash is only 32 bytes, and while this 
+represents a huge number of unique hashes (2^256), 1.15*10^77, hashing node pair 
+hashes as we walk up the tree strongly validates that the hash under question 
+belongs to the correct tree.&nbsp; Furthermore, the audit proof verifies the 
+particular order of the record in relationship to the other leaves.&nbsp; <u>We 
+don't just want to know that a leaf exists, we want to verify that it exists in 
+a particular location in the tree.</u></p>
+<p>A2: Let's say you have a large dataset divided into small chunks. First, you 
+may not be maintaining the entire dataset but only the portion you are 
+responsible for. If a change occurs in that chunk, you can recalculate the root 
+hash knowing only the left-right branches to the root.</p>
+<p>The side-effect to this is that you also only need to maintain the left-right 
+branches for your chunks, rather than the entire Merkle tree (including all the 
+leaf hashes of chunks that you don't know or care about.)</p>
+<p>To synchronize, another user asks you to verify your root hash against their 
+root hash. If different, the left/right child hashes are requested, and the 
+process iterates the mismatches until the chunks on your end that have changed 
+are identified. Now you only send your changed chunk to the other user, and you 
+are both synchronized again.</p>
+<p>Detect Collisions Q&amp;A</p>
+<p>Q3: What happens if more than one user modifies the same chunk (based on the 
+idea that in a distributed system, you want to replicate the data across many 
+peers for resiliency.)</p>
+<p>A1: Only one peer may have the authority to change the data</p>
+<p>A2: Hashes can be time stamped, and you accept only the most recent change, 
+discarding anything else</p>
+<p>A3: Differences are merged (either automatically or requiring manual 
+intervention.)</p>
+<p>A4: You accept only the oldest change, and discard anything more recent</p>
+<p>A5: Technically, a chunk should never be changed. If a change is required, 
+this should be logged as a new transaction so that there is an auditable trail 
+of changes (not the same think as a Merkle audit). Given that, only specified 
+authorities should be allowed to modify a transaction.</p>
+<p>A6: Some sort of blocking mechanism might be used to prevent data from being 
+modified simultaneously. For example, you could be given a &quot;change key&quot; and when 
+you submit the change, if your change key doesn't match the current change key, 
+your change is rejected, requiring you to syncrhonize your data, acquire a new 
+change key, and submit your changes again.</p>
+<p>A7: The salient point to this is that, if the chunk sizes are small, the 
+likelihood that your change will collide with someone else's is small.</p>
+<p>Why Proofs Q&amp;A</p>
+<p>Q4: Why should the server send you the hash audit trail of to verify a chunk, 
+rather than just sending you a &quot;yes/no&quot; response?</p>
+<p>A: This is your way of verifying that the server hasn't been compromised -- 
+if it simply said &quot;yes&quot;, how would you know you can trust it? By sending you the 
+left-right hashes, the server is telling you &quot;here is how I verified your 
+request.&quot; A server that is trying to get you to believe your chunk has is valid 
+cannot send you &quot;any&quot; audit trail hash because that would give a different root 
+hash.</p>
+<h2><a name="References45">References</a></h2>
+<p><sup>1</sup> - <a href="https://en.wikipedia.org/wiki/Ralph_Merkle">Ralph 
+Merkle</a><br>
+<sup>2</sup> - <a href="https://en.wikipedia.org/wiki/Merkle_tree">Merkle Tree</a><br>
+<sup>3</sup> - <a href="https://www.google.com/patents/US4309569">Method of 
+providing digital signatures, patent US 4309569 A</a><br>
+<sup>4</sup> -
+<a href="https://bitcoin.org/en/developer-guide#block-chain-overview">Bitcoin 
+Developer Guide - Block Chain</a><br>
+<sup>5</sup> -
+<a href="http://distributeddatastore.blogspot.com/2013/07/cassandra-using-merkle-trees-to-detect.html">
+Cassandra's AntiEntropy service</a><br>
+<sup>6</sup> -
+<a href="https://blog.ethereum.org/2015/11/15/merkling-in-ethereum/">Merkling in 
+Ethereum</a><br>
+<sup>7</sup> - <a href="http://www.certificate-transparency.org/log-proofs-work">
+Consistency Proofs and Audit Proofs</a><br>
+<sup>8</sup> - <a href="https://en.bitcoin.it/wiki/Block">bitcoin block</a><br>
+9 - <a href="https://tools.ietf.org/html/rfc6962">RFC6962 - Certificate 
+Transparency</a><br>
+10 -
+<a href="http://gcaptain.com/imb-maersk-reveal-blockchain-for-global-supply-chain/">
+IBM, Maersk Reveal Blockchain Solution for Global Supply Chain</a><br>
+11 -
+<a href="https://www.theguardian.com/technology/2017/mar/09/google-deepmind-health-records-tracking-blockchain-nhs-hospitals">
+Google's DeepMind plans bitcoin-style health record tracking for hospitals</a><br>
+12 -
+<a href="http://research.greyspark.com/2015/blockchain-capital-markets-use-cases-2/">
+The Blockchain: Capital Markets Use Cases</a><br>
+13 - <a href="http://ceptr.org/projects/holochain">Holochain</a></p>
+
+</body>
+
+</html>
